@@ -56,9 +56,15 @@ Touchscreens can browse, but typing needs a physical keyboard.
 | **Back** | Show controls, on Stop | Hide controls, or close the subtitle panel |
 
 The Magic Remote pointer works on everything. Play, pause, stop, rewind and fast-forward keys work too.
-The buttons are back 10, play/pause, forward 10, stop, subtitles (CC), video quality and playback speed.
+The buttons are start from beginning, back 10, play/pause, forward 10, stop, subtitles (CC), video quality and playback speed.
 
 **Video quality** lists whatever the stream offers, with Auto to let the player choose. If the page has offered other versions of the video, they appear too, and switching continues from the same point. A site serving one fixed file has nothing to choose from, and the panel says so.
+
+## Continuing where you left off
+
+Every video starts where you stopped, on any site. The TV shows **Continuing from 12:34** for a moment. To start over, on any video, bring up the controls with the remote and press the refresh icon at the start of the row, labelled **Start from beginning** when highlighted.
+
+The point is saved every 10 seconds and when you pause or stop, in `.kmovies/watch-progress.json` on your computer. Each episode has its own. A video counts as watched from 95% or the last 30 seconds, and then starts from the beginning next time. Clips under 2 minutes and live video aren't saved. Delete the file to forget everything.
 
 ## Next episode
 

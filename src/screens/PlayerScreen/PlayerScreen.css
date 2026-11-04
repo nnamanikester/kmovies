@@ -127,6 +127,7 @@
 }
 
 .bar__button {
+  position: relative;
   flex: none;
   width: 104px;
   height: 104px;
@@ -149,6 +150,23 @@
   font-weight: 500;
   color: var(--color-text-muted);
 }
+
+.bar__tooltip {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-bottom: 14px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(16, 16, 26, 0.95);
+  font-size: 24px;
+  font-weight: 500;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.bar__button:focus .bar__tooltip { display: block; }
 
 .bar__button--main { background: var(--color-accent); }
 .bar__button--text { font-size: 26px; }
@@ -400,4 +418,16 @@
 
 @keyframes upnext-spin {
   to { transform: rotate(360deg); }
+}
+
+/* Where you left off */
+.resumed {
+  position: absolute;
+  z-index: 4;
+  top: 54px;
+  left: 96px;
+  padding: 16px 24px;
+  border-radius: 16px;
+  background: rgba(16, 16, 26, 0.9);
+  font-size: 28px;
 }

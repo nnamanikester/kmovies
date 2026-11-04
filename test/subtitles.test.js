@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { findSubtitleLinks, isSubtitleResponse, parseSubtitles } from '../server/subtitles.js';
+import { dropEarlierSubtitles, findSubtitleLinks, replaceOlderLists, isSubtitleResponse, parseSubtitles } from '../server/subtitles.js';
 
 test('parseSubtitles reads SRT, removing styling', () => {
   const cues = parseSubtitles('﻿1\r\n00:00:01,500 --> 00:00:03,000\r\n<i>Hello</i>\r\nthere\r\n\r\n2\r\n01:00:00,000 --> 01:00:02,250\r\n{\\an8}Later\r\n');
@@ -45,6 +45,21 @@ test('findSubtitleLinks handles other players’ shapes', () => {
 test('findSubtitleLinks ignores unrelated and invalid JSON', () => {
   assert.deepEqual(findSubtitleLinks('{"poster":"https://x.com/a.jpg"}'), []);
   assert.deepEqual(findSubtitleLinks('not json .srt'), []);
+});
+
+test('dropEarlierSubtitles keeps only those found around the new video', () => {
+  const tracks = [{ id: 'episode-1', foundAt: 1000 }, { id: 'episode-2', foundAt: 90000 }];
+  assert.deepEqual(dropEarlierSubtitles(tracks, 95000, 15000).map((track) => track.id), ['episode-2']);
+});
+
+test('a newer list replaces older ones in the same languages', () => {
+  const tracks = [
+    { id: 'old-english', batch: 1, language: 'en', label: 'English' },
+    { id: 'old-arabic', batch: 1, language: 'ar', label: 'Arabic' },
+    { id: 'new-english', batch: 2, language: 'en', label: 'English' },
+    { id: 'track-tag', batch: null, language: 'en', label: 'English' },
+  ];
+  assert.deepEqual(replaceOlderLists(tracks, 2, new Set(['en'])).map((track) => track.id), ['old-arabic', 'new-english', 'track-tag']);
 });
 
 test('isSubtitleResponse uses the type or the file name', () => {

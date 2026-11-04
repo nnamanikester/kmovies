@@ -6,10 +6,16 @@ import { EventEmitter } from 'node:events';
 import { AUTO_CAST_INPUT_WINDOW_MS, AUTO_CAST_MIN_BYTES, AUTO_CAST_MIN_SECONDS } from './config.js';
 import { MEDIA_TYPE, classifyResponse, parseDash, parseHls, sniffManifest, totalBytes } from './media.js';
 import { EpisodeNavigator, episodeAddress, episodeLabel, nextSeasonAddress } from './episodes.js';
-import { FIND_IN_PAGE, downloadOnline, findSubtitleLinks, hasOnlineSearch, isSubtitleResponse, listFolder, parseSubtitles, readFolderFile, searchOnline } from './subtitles.js';
+import { WatchProgress, videoKeys } from './progress.js';
+import { FIND_IN_PAGE, dropEarlierSubtitles, replaceOlderLists, downloadOnline, findSubtitleLinks, hasOnlineSearch, isSubtitleResponse, listFolder, parseSubtitles, readFolderFile, searchOnline } from './subtitles.js';
 
 const PAUSE_INTERVAL_MS = 3000;
 const SUBTITLE_ARRIVAL_WINDOW_MS = 30000;
+const PROGRESS_SAVE_INTERVAL_MS = 10000;
+/** A saved point found late, once the episode is known, is only used this early on. */
+const LATE_RESUME_LIMIT_SECONDS = 30;
+/** A video's subtitles load within this long of it starting. */
+const SUBTITLES_WITH_VIDEO_MS = 15000;
 /** How long each way of reaching another episode gets to produce a new video. */
 const ADVANCE_ATTEMPT_MS = 20000;
 /** After picking a season, how long to wait for the site to start it before pressing episode 1. */
@@ -45,6 +51,8 @@ export class CastManager extends EventEmitter {
   /** What the page offers from the current cast: sent to the TV. */
   episodes = null;
   lookTimers = [];
+  progress = new WatchProgress();
+  lastProgressSaveAt = 0;
 
   constructor({ chrome, relay }) {
     super();
@@ -53,7 +61,7 @@ export class CastManager extends EventEmitter {
     this.navigator = new EpisodeNavigator(chrome);
     chrome.on('response', (response) => this.onResponse(response).catch((err) => console.error('[detect]', err.message)));
     chrome.on('body', ({ tabId, url, status, body, requestHeaders }) => {
-      findSubtitleLinks(body).forEach((link) => this.addPageSubtitle(tabId, link, requestHeaders));
+      this.addSubtitleList(tabId, findSubtitleLinks(body), requestHeaders);
       const mediaType = sniffManifest(body);
       if (!mediaType) return;
       this.onResponse({ tabId, url, status, contentType: '', mediaType, responseHeaders: {}, requestHeaders }).catch((err) => console.error('[detect]', err.message));
@@ -83,7 +91,7 @@ export class CastManager extends EventEmitter {
   tabState(tabId) {
     let state = this.tabs.get(tabId);
     if (!state) {
-      state = { candidates: [], subtitles: [], seen: new Set(), variants: new Set(), generation: 0, manifestQueue: Promise.resolve() };
+      state = { candidates: [], subtitles: [], hadFullVideo: false, seen: new Map(), variants: new Set(), generation: 0, manifestQueue: Promise.resolve() };
       this.tabs.set(tabId, state);
     }
     return state;
@@ -138,6 +146,7 @@ export class CastManager extends EventEmitter {
     state.generation += 1;
     state.candidates = [];
     state.subtitles = [];
+    state.hadFullVideo = false;
     state.seen.clear();
     state.variants.clear();
     if (tabId === this.chrome.activeTab?.id) this.notice = null;
@@ -181,8 +190,10 @@ export class CastManager extends EventEmitter {
   async addCandidate({ tabId, url, mediaType, responseHeaders, requestHeaders }) {
     const state = this.tabState(tabId);
     const key = url.split('?')[0];
-    if (state.seen.has(key) || state.variants.has(key)) return;
-    state.seen.add(key);
+    // Seen before you last did something can be you returning to it. Players also re-request by themselves.
+    if (state.variants.has(key) || (state.seen.has(key) && state.seen.get(key) >= this.lastInputAt)) return;
+    if (state.seen.has(key)) state.candidates = state.candidates.filter((known) => known.url.split('?')[0] !== key);
+    state.seen.set(key, Date.now());
 
     const candidate = {
       id: String(this.nextId++),
@@ -203,6 +214,10 @@ export class CastManager extends EventEmitter {
       await this.inspectManifest(candidate, state).catch((err) => console.error('[detect]', new URL(url).hostname, err.message));
     }
 
+    if (isFullLength(candidate)) {
+      if (state.hadFullVideo) state.subtitles = dropEarlierSubtitles(state.subtitles, Date.now(), SUBTITLES_WITH_VIDEO_MS);
+      state.hadFullVideo = true;
+    }
     state.candidates = [...state.candidates, candidate];
     this.changed();
     this.sendVersions();
@@ -217,7 +232,7 @@ export class CastManager extends EventEmitter {
     const { advancing } = this;
     if (!advancing || candidate.tabId !== advancing.tabId || !isCastable(candidate)) return false;
     if (candidate.url.split('?')[0] === advancing.fromKey) return false;
-    return candidate.isLive || candidate.duration >= MIN_EPISODE_SECONDS || candidate.bytes >= AUTO_CAST_MIN_BYTES;
+    return isFullLength(candidate);
   }
 
   /* ---------- episodes ---------- */
@@ -225,7 +240,11 @@ export class CastManager extends EventEmitter {
   /** Looks a few times after a cast starts: sites fill in their lists as they load. */
   lookForEpisodes() {
     this.lookTimers.forEach(clearTimeout);
-    this.lookTimers = LOOK_DELAYS_MS.map((delay) => setTimeout(() => this.refreshEpisodes().catch(() => {}), delay));
+    const { cast } = this;
+    this.lookTimers = LOOK_DELAYS_MS.map((delay, index) => setTimeout(() => {
+      if (index === LOOK_DELAYS_MS.length - 1) cast.episodeSettled = true;
+      this.refreshEpisodes().catch(() => {});
+    }, delay));
   }
 
   async refreshEpisodes() {
@@ -237,6 +256,7 @@ export class CastManager extends EventEmitter {
     const found = await this.navigator.look(cast.tabId, cast.episode);
     if (this.cast !== cast || this.advancing || !found) return;
     if (found.current.episode || found.current.season) cast.episode = found.current;
+    this.resumeIfNowKnown();
     // A next episode known before keeps standing if the list has merely gone for now.
     this.episodes = found;
     this.sendEpisodes();
@@ -378,6 +398,10 @@ export class CastManager extends EventEmitter {
     state.seen.clear();
     state.variants.clear();
     state.candidates = [];
+    // Subtitles belong to one episode. Kept, the first in a language would stay chosen for all of them.
+    state.subtitles = [];
+    state.hadFullVideo = false;
+    this.castSubtitles = [];
 
     const ways = await this.waysToReach(target, direction, memory);
     let candidate = null;
@@ -406,7 +430,9 @@ export class CastManager extends EventEmitter {
     if (this.cast) this.chrome.pauseVideos(this.cast.tabId);
   }
 
-  onTvEpisode({ action, season, episode }) {
+  onTvEpisode({ action, season, episode, finished }) {
+    // Moving on from the closing moments means this one's watched, whatever the setting for them.
+    if (finished && this.cast) this.startOver();
     if (action === 'look') return this.refreshEpisodes();
     if (action === 'next') return this.advance('next');
     if (action === 'previous') return this.advance('previous');
@@ -429,7 +455,19 @@ export class CastManager extends EventEmitter {
     return this.cast.pageGeneration === this.tabState(tabId).generation || Date.now() - this.cast.startedAt < SUBTITLE_ARRIVAL_WINDOW_MS;
   }
 
-  addPageSubtitle(tabId, { url, language, label }, requestHeaders) {
+  /** One list from the site, as for the video it's now loading. */
+  addSubtitleList(tabId, links, requestHeaders) {
+    if (links.length === 0) return;
+    const batch = this.nextSubtitleId++;
+    links.forEach((link) => this.addPageSubtitle(tabId, link, requestHeaders, batch));
+    const languages = new Set(links.map((link) => (link.language || link.label || '').toLowerCase()).filter(Boolean));
+    const state = this.tabState(tabId);
+    state.subtitles = replaceOlderLists(state.subtitles, batch, languages);
+    if (this.belongsToCast(tabId)) this.castSubtitles = replaceOlderLists(this.castSubtitles, batch, languages);
+    this.sendSubtitles();
+  }
+
+  addPageSubtitle(tabId, { url, language, label }, requestHeaders, batch = null) {
     if (!/^https?:\/\//.test(url)) return;
     const key = url.split('?')[0];
     const lists = [this.tabState(tabId).subtitles, ...(this.belongsToCast(tabId) ? [this.castSubtitles] : [])];
@@ -437,6 +475,7 @@ export class CastManager extends EventEmitter {
     lists.forEach((list) => {
       const known = list.find((track) => track.key === key);
       if (known) {
+        if (batch) known.batch = batch;
         // A caption list names the language; the file request alone doesn't.
         if (label && known.unnamed) {
           Object.assign(known, { label, language, unnamed: false });
@@ -451,7 +490,7 @@ export class CastManager extends EventEmitter {
       if (referer || Referer) headers.referer = referer || Referer;
       if (origin || Origin) headers.origin = origin || Origin;
       if (agent || Agent) headers['user-agent'] = agent || Agent;
-      list.push({ id, key, url, headers, source: 'page', language, label: label || language || `Subtitle ${list.length + 1}`, unnamed: !label });
+      list.push({ id, key, url, headers, batch, foundAt: Date.now(), source: 'page', language, label: label || language || `Subtitle ${list.length + 1}`, unnamed: !label });
       changed = true;
     });
     if (changed) this.sendSubtitles();
@@ -500,14 +539,48 @@ export class CastManager extends EventEmitter {
     this.startCast(candidate);
   }
 
+  /** Until the page has been read for its episode, only the stream's name is certain to mean this video. */
+  savingKeys() {
+    const keys = videoKeys(this.cast);
+    return this.cast.episodeSettled || this.cast.episode?.episode ? keys : keys.slice(0, 1);
+  }
+
+  saveProgress() {
+    const { cast, playback } = this;
+    if (!cast || cast.startingOver || !playback) return;
+    this.lastProgressSaveAt = Date.now();
+    this.progress.save(this.savingKeys(), playback.position, playback.duration, cast.title);
+  }
+
+  /** The episode is often only known moments after a video starts, which can reveal a saved point. */
+  resumeIfNowKnown() {
+    const { cast, playback } = this;
+    if (!cast || cast.resumed || cast.startingOver || !cast.episode?.episode || !this.tv) return;
+    const position = playback?.position ?? 0;
+    if (position > LATE_RESUME_LIMIT_SECONDS) return;
+    const saved = this.progress.find(videoKeys(cast), playback?.duration ?? cast.duration);
+    if (!saved) return;
+    cast.resumed = true;
+    this.tv.send({ type: 'resume', castId: cast.id, position: saved.position });
+  }
+
+  /** From the TV's "Start from beginning". Saving stays off until the video is actually back there. */
+  startOver() {
+    if (!this.cast) return;
+    this.progress.clear(videoKeys(this.cast));
+    Object.assign(this.cast, { startingOver: true, resumed: true });
+  }
+
   /** @param {{ startAt?: number }} [options] where to begin, when switching version mid-way */
   startCast(candidate, { startAt = 0, episode = null } = {}) {
+    this.saveProgress();
     const state = this.tabState(candidate.tabId);
     const sourceId = this.relay.register(candidate.url, candidate.headers);
     this.cast = {
       id: candidate.id,
       tabId: candidate.tabId,
       pageUrl: this.chrome.tabById(candidate.tabId)?.url ?? '',
+      duration: candidate.duration,
       episode,
       startAt,
       title: candidate.title,
@@ -520,6 +593,9 @@ export class CastManager extends EventEmitter {
     };
     this.playback = null;
     this.notice = null;
+    // Everything starts where you left it. Switching version already carries its own point.
+    const saved = startAt ? null : this.progress.find(videoKeys(this.cast), candidate.duration);
+    if (saved) Object.assign(this.cast, { startAt: saved.position, resumed: true });
     // Switching version keeps the subtitles found for the video.
     if (!startAt) this.castSubtitles = [...state.subtitles];
     this.episodes = startAt ? this.episodes : null;
@@ -531,8 +607,8 @@ export class CastManager extends EventEmitter {
 
   sendLoad() {
     if (!this.cast || !this.tv) return;
-    const { id, title, url, mediaType, startAt } = this.cast;
-    this.tv.send({ type: 'load', castId: id, title, url, mediaType, startAt });
+    const { id, title, url, mediaType, startAt, resumed } = this.cast;
+    this.tv.send({ type: 'load', castId: id, title, url, mediaType, startAt, resumed: Boolean(resumed) });
     this.sendSubtitles();
     this.sendVersions();
     this.sendEpisodes();
@@ -594,6 +670,7 @@ export class CastManager extends EventEmitter {
   }
 
   stopCast() {
+    this.saveProgress();
     this.cancelAdvance();
     this.lookTimers.forEach(clearTimeout);
     this.episodes = null;
@@ -615,6 +692,7 @@ export class CastManager extends EventEmitter {
 
   detachTv(tv) {
     if (this.tv !== tv) return;
+    this.saveProgress();
     this.tv = null;
     this.playback = null;
     this.changed();
@@ -658,7 +736,11 @@ export class CastManager extends EventEmitter {
       this.changed();
       return;
     }
+    const wasPaused = this.playback?.paused;
     this.playback = { status, position, duration, paused };
+    if (this.cast.startingOver && position > 0 && position < LATE_RESUME_LIMIT_SECONDS) this.cast.startingOver = false;
+    // Every 10 seconds, and straight away on pausing.
+    if (Date.now() - this.lastProgressSaveAt >= PROGRESS_SAVE_INTERVAL_MS || (paused && !wasPaused)) this.saveProgress();
     this.changed();
   }
 }
@@ -670,6 +752,10 @@ function describeVersion({ mediaType, url, duration, bytes }) {
   const resolution = /(\d{3,4})p?(?=[._/-])/.exec(new URL(url).pathname);
   if (resolution) parts.unshift(`${resolution[1]}p`);
   return parts.join(' · ');
+}
+
+function isFullLength(candidate) {
+  return candidate.isLive || candidate.duration >= MIN_EPISODE_SECONDS || candidate.bytes >= AUTO_CAST_MIN_BYTES;
 }
 
 function isCastable(candidate) {

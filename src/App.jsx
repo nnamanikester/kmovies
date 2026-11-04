@@ -14,6 +14,7 @@ export default function App() {
   const subtitles = useSubtitles(media, player.videoRef, send);
   const episodes = useEpisodes(media, send);
   const [speed, setSpeed] = useState(1);
+  const [lateResume, setLateResume] = useState(null);
   const peekRef = useRef(() => {});
   const [versionList, setVersionList] = useState({ castId: null, versions: [] });
 
@@ -21,6 +22,9 @@ export default function App() {
     if (message.type === 'control') {
       player.control(message);
       peekRef.current();
+    } else if (message.type === 'resume') {
+      player.control({ action: 'seekTo', value: message.position });
+      setLateResume({ castId: message.castId, position: message.position });
     } else if (message.type === 'versions') {
       setVersionList(message);
     } else if (message.type === 'episodes' || message.type === 'advancing' || message.type === 'advanceFailed') {
@@ -29,6 +33,13 @@ export default function App() {
       subtitles.onMessage(message);
     }
   };
+
+  const startOver = () => {
+    send({ type: 'startOver' });
+    player.control({ action: 'seekTo', value: 0 });
+  };
+  let resumedFrom = media && media.resumed ? media.startAt : null;
+  if (media && lateResume && lateResume.castId === media.castId) resumedFrom = lateResume.position;
 
   const stop = () => {
     sendStatus({ status: 'stopped' });
@@ -39,5 +50,5 @@ export default function App() {
   const switchVersion = (id) => send({ type: 'version', id, position: player.videoRef.current ? player.videoRef.current.currentTime : 0 });
 
   if (!media) return <WaitingScreen connected={connected} server={server} />;
-  return <PlayerScreen key={media.castId} media={media} player={player} subtitles={subtitles} episodes={episodes} speed={speed} onSpeedChange={setSpeed} versions={versions} onSwitchVersion={switchVersion} onStop={stop} peekRef={peekRef} />;
+  return <PlayerScreen key={media.castId} media={media} player={player} subtitles={subtitles} resumedFrom={resumedFrom} onStartOver={startOver} episodes={episodes} speed={speed} onSpeedChange={setSpeed} versions={versions} onSwitchVersion={switchVersion} onStop={stop} peekRef={peekRef} />;
 }

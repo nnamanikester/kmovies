@@ -35,6 +35,9 @@ export const APP_CONFIG = Object.freeze({
   /** How long "You've finished this series" stays before returning to the waiting screen. */
   FINISHED_DURATION_MS: 12000,
 
+  /** How long "Continuing from..." stays up. */
+  RESUMED_NOTICE_MS: 10000,
+
   /** Seconds skipped by the remote's left/right keys. */
   SKIP_SECONDS: 10,
 });

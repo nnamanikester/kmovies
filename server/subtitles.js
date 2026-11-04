@@ -99,6 +99,25 @@ export function findSubtitleLinks(body) {
   return found;
 }
 
+/**
+ * When another full-length video starts on a page, subtitles from before it
+ * belong to the old video, as a page can change video without changing address.
+ * The new video's own arrive just around when it starts, so those are kept.
+ */
+export function dropEarlierSubtitles(tracks, now, keepWithinMs) {
+  return tracks.filter((track) => now - track.foundAt <= keepWithinMs);
+}
+
+/**
+ * A site sends a subtitle list for whichever video it's loading now, so a newer
+ * list replaces older lists' tracks in the same languages. Otherwise the first
+ * "English" ever seen on a page would be offered for every later episode.
+ */
+export function replaceOlderLists(tracks, batch, languages) {
+  const named = (track) => (track.language || track.label || '').toLowerCase();
+  return tracks.filter((track) => !track.batch || track.batch === batch || !languages.has(named(track)));
+}
+
 /** Subtitle links written into a page: <track> tags, and player settings in its HTML. */
 export const FIND_IN_PAGE = `(() => {
   const found = [...document.querySelectorAll('track[src]:not([kind="metadata"]):not([kind="chapters"]):not([kind="descriptions"])')].map((t) => ({ url: t.src, language: t.srclang || null, label: t.label || null }));

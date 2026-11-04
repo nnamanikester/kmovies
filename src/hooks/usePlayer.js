@@ -84,7 +84,7 @@ export function usePlayer(media, sendStatus) {
     };
 
     if (media.mediaType === 'hls' && Hls.isSupported()) {
-      hls = new Hls({ enableWorker: false });
+      hls = new Hls({ enableWorker: false, startPosition: media.startAt > 0 ? media.startAt : -1 });
       hls.loadSource(media.url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {

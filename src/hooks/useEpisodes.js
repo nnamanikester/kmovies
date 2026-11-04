@@ -41,9 +41,10 @@ export function useEpisodes(media, send) {
     send({ type: 'episode', action, ...details });
   }, [send]);
 
-  const next = useCallback((automatic = false) => {
+  /** @param {boolean} [automatic] started by itself @param {boolean} [finished] from the closing moments */
+  const next = useCallback((automatic = false, finished = false) => {
     unattendedRef.current = automatic ? unattendedRef.current + 1 : 0;
-    request('next');
+    request('next', { finished });
   }, [request]);
   const previous = useCallback(() => request('previous'), [request]);
   const jump = useCallback((season, episode) => request('jump', { season, episode }), [request]);

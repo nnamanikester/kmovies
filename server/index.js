@@ -184,6 +184,7 @@ function onReceiver(ws) {
     if (message.type === 'subtitle') cast.onTvSubtitle(message);
     if (message.type === 'version') cast.switchVersion(message);
     if (message.type === 'episode') cast.onTvEpisode(message);
+    if (message.type === 'startOver') cast.startOver();
     if (message.type === 'log') console.error('[tv]', String(message.text).slice(0, 500));
   });
   ws.on('close', () => cast.detachTv(tv));
@@ -213,6 +214,8 @@ async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   chrome.removeAllListeners('closed');
+  cast.saveProgress();
+  cast.progress.writeNow();
   await chrome.close();
   process.exit(0);
 }

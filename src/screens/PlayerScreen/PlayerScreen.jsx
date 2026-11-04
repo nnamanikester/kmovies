@@ -3,6 +3,7 @@ import { APP_CONFIG } from '../../config/app.config';
 import { AUTO_QUALITY } from '../../hooks/usePlayer';
 import { useRemoteKeys } from '../../hooks/useRemoteKeys';
 import { cueTextAt } from '../../services/cues';
+import { formatTime } from '../../services/format';
 import { ControlBar } from './ControlBar';
 import { EpisodesPanel } from './EpisodesPanel';
 import { QualityPanel } from './QualityPanel';
@@ -12,7 +13,7 @@ import './PlayerScreen.css';
 
 const {
   CONTROLS_DURATION_MS, PEEK_DURATION_MS, SKIP_SECONDS, SCRUB_STEP_SECONDS, SCRUB_COMMIT_DELAY_MS, SPEEDS,
-  UP_NEXT_COUNTDOWN_SECONDS, UP_NEXT_MIN_DURATION_SECONDS, STILL_WATCHING_AFTER, FINISHED_DURATION_MS,
+  UP_NEXT_COUNTDOWN_SECONDS, UP_NEXT_MIN_DURATION_SECONDS, STILL_WATCHING_AFTER, FINISHED_DURATION_MS, RESUMED_NOTICE_MS,
 } = APP_CONFIG;
 
 /** hidden: just the video. peek: position shown, keys still skip. controls: bar in charge. panel: subtitles open. */
@@ -26,7 +27,7 @@ function qualityLabel({ qualities, selectedQuality, playingQuality }) {
 }
 
 /** Full-screen video with the playback controls, run by the remote or its pointer. */
-export function PlayerScreen({ media, player, subtitles, episodes, speed, onSpeedChange, versions, onSwitchVersion, onStop, peekRef }) {
+export function PlayerScreen({ media, player, subtitles, resumedFrom, onStartOver, episodes, speed, onSpeedChange, versions, onSwitchVersion, onStop, peekRef }) {
   const { videoRef, control } = player;
   const rootRef = useRef(null);
   const [mode, setMode] = useState(MODE.PEEK);
@@ -113,7 +114,7 @@ export function PlayerScreen({ media, player, subtitles, episodes, speed, onSpee
   useEffect(() => {
     if (overlayKind !== 'countdown' || paused) return undefined;
     if (countdown <= 0) {
-      goNext(true);
+      goNext(true, true);
       return undefined;
     }
     const timer = setTimeout(() => setCountdown((seconds) => seconds - 1), 1000);
@@ -122,7 +123,7 @@ export function PlayerScreen({ media, player, subtitles, episodes, speed, onSpee
 
   // An ending reached with autoplay on simply moves on.
   useEffect(() => {
-    if (ended && overlayKind === 'ended' && canAutoplay) goNext(true);
+    if (ended && overlayKind === 'ended' && canAutoplay) goNext(true, true);
   }, [ended, overlayKind, canAutoplay, goNext]);
 
   useEffect(() => {
@@ -138,6 +139,23 @@ export function PlayerScreen({ media, player, subtitles, episodes, speed, onSpee
     setMode(MODE.HIDDEN);
     setTimeout(() => focusOn('.upnext [data-nav]'));
   }, [overlayKind, overlayHasKeys]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ---------- where you left off ---------- */
+
+  const [resumedNotice, setResumedNotice] = useState(false);
+  useEffect(() => {
+    if (!resumedFrom) return undefined;
+    setResumedNotice(true);
+    const timer = setTimeout(() => setResumedNotice(false), RESUMED_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [resumedFrom]);
+
+  const startOver = () => {
+    setResumedNotice(false);
+    onStartOver();
+    setMode(MODE.PEEK);
+    touch();
+  };
 
   const skip = (seconds) => control({ action: 'seekBy', value: seconds });
   const toggle = () => control({ action: 'toggle' });
@@ -310,6 +328,11 @@ export function PlayerScreen({ media, player, subtitles, episodes, speed, onSpee
           <span className="caption__text">{subtitleText}</span>
         </div>
       )}
+      {resumedNotice && !overlay && mode !== MODE.PANEL && (
+        <div className="resumed" role="status">
+          Continuing from {formatTime(resumedFrom)}
+        </div>
+      )}
       {barVisible && (
         <ControlBar
           title={media.title}
@@ -325,6 +348,7 @@ export function PlayerScreen({ media, player, subtitles, episodes, speed, onSpee
           onStop={onStop}
           onOpenSubtitles={() => openPanel('subtitles')}
           onOpenQuality={() => openPanel('quality')}
+          onStartOver={startOver}
           episodeLabel={episodes.current ? episodes.current.label : null}
           hasNext={Boolean(episodes.nextEpisode)}
           hasEpisodes={Boolean(episodes.current || episodes.nextEpisode || episodes.previousEpisode)}
@@ -339,7 +363,7 @@ export function PlayerScreen({ media, player, subtitles, episodes, speed, onSpee
       {overlay && mode !== MODE.PANEL && (
         <UpNext
           overlay={overlay}
-          onPlayNow={() => episodes.next()}
+          onPlayNow={() => episodes.next(false, true)}
           onDismiss={() => setDismissed(true)}
           onStop={onStop}
           onRetry={() => episodes.next()}

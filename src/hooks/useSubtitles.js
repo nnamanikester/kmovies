@@ -85,7 +85,7 @@ export function useSubtitles(media, videoRef, send) {
       updatePrefs({ language: track.language || null });
     }
     hideEmbedded();
-    applySelection({ kind: 'file', id: track.id });
+    applySelection({ kind: 'file', id: track.id, language: track.language || null, source: track.source || null });
     setBusy(true);
     send({ type: 'subtitle', action: 'load', id: track.id });
   }, [applySelection, hideEmbedded, send, updatePrefs]);
@@ -167,6 +167,20 @@ export function useSubtitles(media, videoRef, send) {
       video.textTracks.removeEventListener('removetrack', update);
     };
   }, [castId, videoRef]);
+
+  // The site replaced what's showing with a newer list, as when its episode loaded late: follow it.
+  useEffect(() => {
+    const showing = selectionRef.current;
+    if (showing.kind !== 'file' || showing.source !== 'page' || tracks === NO_TRACKS) return;
+    if (tracks.some((track) => track.id === showing.id)) return;
+    const replacement = tracks.find((track) => track.source === 'page' && sameLanguage(track.language, showing.language));
+    if (replacement) selectFile(replacement, false);
+    else {
+      selectionRef.current = NONE;
+      setSelection(NONE);
+      setCues([]);
+    }
+  }, [tracks, selectFile]);
 
   // Show the language you last chose, as soon as it's offered.
   useEffect(() => {

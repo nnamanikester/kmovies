@@ -14,12 +14,16 @@ function StopIcon() {
   return <svg viewBox="0 0 24 24" className="icon" aria-hidden="true"><path d="M5 5h14v14H5z" /></svg>;
 }
 
+function RestartIcon() {
+  return <svg viewBox="0 0 24 24" className="icon" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" /></svg>;
+}
+
 function NextIcon() {
   return <svg viewBox="0 0 24 24" className="icon" aria-hidden="true"><path d="M5 4l11 8-11 8zM17 4h3v16h-3z" /></svg>;
 }
 
 /** Position, seek bar and buttons. `compact` shows just the position, after a skip. */
-export function ControlBar({ title, time, scrub, paused, speed, compact, subtitlesOn, qualityLabel, episodeLabel, hasNext, hasEpisodes, onNext, onOpenEpisodes, onSeek, onSkip, onToggle, onStop, onOpenSubtitles, onOpenQuality, onCycleSpeed }) {
+export function ControlBar({ title, time, scrub, paused, speed, compact, subtitlesOn, qualityLabel, episodeLabel, hasNext, hasEpisodes, onNext, onOpenEpisodes, onStartOver, onSeek, onSkip, onToggle, onStop, onOpenSubtitles, onOpenQuality, onCycleSpeed }) {
   const shown = scrub === null ? time.position : scrub;
   const hasLength = Number.isFinite(time.duration) && time.duration > 0;
   const progress = hasLength ? Math.min(100, (shown / time.duration) * 100) : 0;
@@ -30,9 +34,10 @@ export function ControlBar({ title, time, scrub, paused, speed, compact, subtitl
     onSeek(((event.clientX - rect.left) / rect.width) * time.duration);
   };
 
-  const button = (nav, label, content, onClick, extraClass = '') => (
+  const button = (nav, label, content, onClick, extraClass = '', tooltip = null) => (
     <button type="button" data-nav={nav} className={`bar__button ${extraClass}`} aria-label={label} onClick={onClick} onMouseEnter={focusOnHover}>
       {content}
+      {tooltip && <span className="bar__tooltip">{tooltip}</span>}
     </button>
   );
 
@@ -51,6 +56,7 @@ export function ControlBar({ title, time, scrub, paused, speed, compact, subtitl
       </p>
       {!compact && (
         <div className="bar__buttons">
+          {button('restart', 'Start from beginning', <RestartIcon />, onStartOver, '', 'Start from beginning')}
           {button('back10', 'Back 10 seconds', '−10', () => onSkip(-10))}
           {button('play', paused ? 'Play' : 'Pause', paused ? <PlayIcon /> : <PauseIcon />, onToggle, 'bar__button--main')}
           {button('forward10', 'Forward 10 seconds', '+10', () => onSkip(10))}
