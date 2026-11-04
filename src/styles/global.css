@@ -1,0 +1,32 @@
+/* Design tokens — tweak the look of the whole app here. */
+:root {
+  --color-bg: #0b0b12;
+  --color-bg-glow: #1d1530;
+  --color-surface: #2a2a3a;
+  --color-text: #ffffff;
+  --color-text-muted: #b5b5c8;
+  --color-accent: #e5354b;
+  --color-accent-2: #ff8a3d;
+  --color-accent-glow: rgba(229, 53, 75, 0.45);
+
+  /* Keep content clear of TV overscan (5% of 1920x1080). */
+  --safe-area: 54px 96px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'LG Smart UI', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}

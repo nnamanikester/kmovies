@@ -1,0 +1,17 @@
+{
+  "id": "com.kmovies.tv",
+  "version": "2.0.0",
+  "vendor": "KMovies",
+  "type": "web",
+  "main": "index.html",
+  "title": "KMovies",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "splashBackground": "splash.png",
+  "bgColor": "#0b0b12",
+  "iconColor": "#0b0b12",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true,
+  "handlesRelaunch": true,
+  "requiredACG": []
+}

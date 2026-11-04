@@ -1,0 +1,7 @@
+{
+  "name": "com.kmovies.tv.proxy",
+  "version": "1.0.6",
+  "description": "On-TV proxy that makes modern websites run on older webOS browser engines.",
+  "main": "index.js",
+  "private": true
+}

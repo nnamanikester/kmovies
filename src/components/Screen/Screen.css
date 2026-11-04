@@ -1,0 +1,15 @@
+.screen {
+  width: 100vw;
+  height: 100vh;
+  padding: var(--safe-area);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: radial-gradient(circle at 50% 30%, var(--color-bg-glow), var(--color-bg) 70%);
+}
+
+.screen > * + * {
+  margin-top: 64px;
+}

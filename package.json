@@ -1,0 +1,36 @@
+{
+  "name": "kmovies",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Browse any website from a web app and cast the video it plays to an LG webOS TV.",
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/start.mjs",
+    "build": "vite build",
+    "build:web": "vite build --config vite.web.config.js",
+    "test": "node --test test/media.test.js test/find-tv.test.js test/subtitles.test.js test/episodes.test.js",
+    "test:e2e": "node test/e2e.mjs",
+    "icons": "node scripts/generate-icons.mjs",
+    "package": "npm run build && ares-package dist --no-minify --outdir build",
+    "tv:setup": "ares-setup-device",
+    "tv:install": "node scripts/tv.mjs install",
+    "tv:launch": "node scripts/tv.mjs launch",
+    "tv:inspect": "node scripts/tv.mjs inspect",
+    "tv:uninstall": "node scripts/tv.mjs uninstall",
+    "test:e2e:episodes": "node test/e2e-episodes.mjs"
+  },
+  "dependencies": {
+    "dashjs": "^4.7.4",
+    "hls.js": "^1.7.4",
+    "puppeteer-core": "^25.16.0",
+    "qrcode-terminal": "^0.12.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ws": "^8.22.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "@webos-tools/cli": "^3.1.0",
+    "vite": "^5.4.11"
+  }
+}

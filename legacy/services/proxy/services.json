@@ -1,0 +1,10 @@
+{
+  "id": "com.kmovies.tv.proxy",
+  "description": "KMovies compatibility proxy",
+  "services": [
+    {
+      "name": "com.kmovies.tv.proxy",
+      "description": "Serves the target site from 127.0.0.1 with JavaScript transpiled for the TV's browser engine."
+    }
+  ]
+}

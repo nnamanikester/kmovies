@@ -1,0 +1,33 @@
+{
+  "targetUrl": "https://themoviebox.xyz/",
+  "assetOrigins": [
+    "https://h5-static.aoneroom.com"
+  ],
+  "apiOrigins": [
+    "https://h5-api.aoneroom.com"
+  ],
+  "mediaDomains": [
+    "hakunaymatata.com"
+  ],
+  "allowedScriptOrigins": [
+    "https://gosspublic.alicdn.com"
+  ],
+  "allowedFrameOrigins": [
+    "https://www.youtube-nocookie.com",
+    "https://www.youtube.com"
+  ],
+  "blockedPaths": [
+    "/ad-slot"
+  ],
+  "hiddenSelectors": [
+    ".high-performance-ad",
+    "iframe[src*='/ad-slot']"
+  ],
+  "scriptPatches": [
+    {
+      "description": "Treat the local proxy as an official host so 'Log in' and 'Go Premium' are shown",
+      "find": "[\"themoviebox.xyz\",\"www.themoviebox.xyz\"]",
+      "replace": "[\"themoviebox.xyz\",\"www.themoviebox.xyz\",\"127.0.0.1\"]"
+    }
+  ]
+}

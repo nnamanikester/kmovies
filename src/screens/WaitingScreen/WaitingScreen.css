@@ -1,0 +1,11 @@
+.waiting__title {
+  margin: 24px 0 16px;
+  font-size: 48px;
+  font-weight: 600;
+}
+
+.waiting__text {
+  margin: 0;
+  font-size: 30px;
+  color: var(--color-text-muted);
+}

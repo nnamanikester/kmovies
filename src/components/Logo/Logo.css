@@ -1,0 +1,32 @@
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.logo__mark {
+  width: 120px;
+  height: 120px;
+  border-radius: 32px;
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));
+  position: relative;
+  box-shadow: 0 20px 60px var(--color-accent-glow);
+}
+
+/* Play triangle */
+.logo__mark::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 54%;
+  transform: translate(-50%, -50%);
+  border-style: solid;
+  border-width: 28px 0 28px 46px;
+  border-color: transparent transparent transparent #fff;
+}
+
+.logo__name {
+  font-size: 96px;
+  font-weight: 800;
+  letter-spacing: -2px;
+}

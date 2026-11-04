@@ -1,0 +1,14 @@
+.spinner {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 8px solid var(--color-surface);
+  border-top-color: var(--color-accent);
+  animation: spinner-rotate 0.9s linear infinite;
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
