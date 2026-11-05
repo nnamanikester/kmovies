@@ -10,6 +10,9 @@ import { CHROME_PROFILE_DIR } from './config.js';
 import { readSessionCookies, writeSessionCookies } from './library.js';
 
 const SCREENCAST_QUALITY = 90;
+const MAX_VIEWPORT = 3840;
+/** Chrome can leave a capture unanswered, and the screen would stay frozen waiting for it. */
+const CAPTURE_TIMEOUT_MS = 4000;
 /** Once the page stops changing for this long, it's sent again without any compression blur. */
 const SHARPEN_DELAY_MS = 150;
 const INPUT_WORLD = 'kmovies-input';
@@ -159,6 +162,8 @@ export class ChromeBrowser extends EventEmitter {
   }
 
   saveTabs() {
+    // Chrome closing closes every tab too, which isn't you closing them.
+    if (this.closing) return;
     const urls = this.tabs.map((tab) => tab.pendingUrl || tab.url).map((url) => (/^https?:/.test(url) ? url : null));
     const kept = urls.filter(Boolean);
     this.library.setTabs(kept, Math.max(0, kept.indexOf(urls[this.tabs.indexOf(this.activeTab)])));
@@ -456,6 +461,23 @@ export class ChromeBrowser extends EventEmitter {
     this.sharpenSoon(tab);
   }
 
+  /**
+   * The visible page at full resolution. The clip matters: without one, a click that
+   * arrives during the capture lands at its position divided by the pixel density.
+   */
+  screenshot(tab, options) {
+    return inTurn(tab, async () => {
+      const { cssVisualViewport: { pageX, pageY } } = await tab.client.send('Page.getLayoutMetrics');
+      const { width, height } = this.viewport;
+      return tab.client.send('Page.captureScreenshot', {
+        ...options,
+        fromSurface: true,
+        captureBeyondViewport: false,
+        clip: { x: pageX, y: pageY, width, height, scale: 1 },
+      });
+    });
+  }
+
   /** Captures at full resolution, one at a time, always ending on the latest change. */
   async captureChange(tab) {
     tab.changePending = true;
@@ -463,7 +485,7 @@ export class ChromeBrowser extends EventEmitter {
     tab.capturingChange = true;
     while (tab.changePending && tab === this.activeTab && !tab.dialog) {
       tab.changePending = false;
-      const { data } = await tab.client.send('Page.captureScreenshot', { format: 'jpeg', quality: SCREENCAST_QUALITY, fromSurface: true, captureBeyondViewport: false }).catch(() => ({}));
+      const { data } = await this.screenshot(tab, { format: 'jpeg', quality: SCREENCAST_QUALITY }).catch(() => ({}));
       if (!data || tab !== this.activeTab) break;
       tab.lastFrame = Buffer.from(data, 'base64');
       this.emit('frame', tab.lastFrame);
@@ -481,7 +503,7 @@ export class ChromeBrowser extends EventEmitter {
   async sharpen(tab) {
     if (tab !== this.activeTab || !this.screencasting || tab.dialog) return;
     const frameCount = tab.frameCount;
-    const { data } = await tab.client.send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: false }).catch(() => ({}));
+    const { data } = await this.screenshot(tab, { format: 'png' }).catch(() => ({}));
     // Something newer arrived meanwhile, and it will be sharpened in turn.
     if (!data || tab !== this.activeTab || tab.frameCount !== frameCount) return;
     tab.lastFrame = Buffer.from(data, 'base64');
@@ -514,20 +536,27 @@ export class ChromeBrowser extends EventEmitter {
    * Set on the same connection as the screen stream. Chrome keeps these per
    * connection, and the stream would otherwise stay at 1x, blurred on a Retina screen.
    */
-  async applyViewport(tab) {
-    const { width, height, deviceScaleFactor, isMobile, hasTouch } = this.viewport;
-    await tab.client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor, mobile: isMobile });
-    await tab.client.send('Emulation.setTouchEmulationEnabled', { enabled: hasTouch });
+  applyViewport(tab) {
+    return inTurn(tab, async () => {
+      const { width, height, deviceScaleFactor, isMobile, hasTouch } = this.viewport;
+      await tab.client.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor, mobile: isMobile });
+      await tab.client.send('Emulation.setTouchEmulationEnabled', { enabled: hasTouch });
+    });
+  }
+
+  pageSize() {
+    return { width: this.viewport.width, height: this.viewport.height };
   }
 
   async setViewport({ width, height, deviceScaleFactor, mobile }) {
     this.viewport = {
-      width: clamp(width, 240, 2560),
-      height: clamp(height, 240, 2560),
+      width: clamp(width, 240, MAX_VIEWPORT),
+      height: clamp(height, 240, MAX_VIEWPORT),
       deviceScaleFactor: clamp(deviceScaleFactor, 1, 3),
       isMobile: Boolean(mobile),
       hasTouch: Boolean(mobile),
     };
+    this.emit('viewport', this.pageSize());
     const tab = this.activeTab;
     if (!tab) return;
     await this.applyViewport(tab);
@@ -638,11 +667,26 @@ export class ChromeBrowser extends EventEmitter {
 
   /** Saves everything, then lets Chrome finish writing its own cookies and site data. */
   async close() {
+    this.closing = true;
     clearInterval(this.sessionTimer);
     await this.saveSessionCookies().catch(() => {});
     this.library.saveNow();
     await this.browser?.close().catch(() => {});
   }
+}
+
+/**
+ * Runs captures and screen size changes one at a time. A capture that's in progress
+ * when the size changes may never finish. Rejects if `task` takes too long.
+ */
+function inTurn(tab, task) {
+  const run = () => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Chrome did not respond')), CAPTURE_TIMEOUT_MS);
+    task().then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+  const result = (tab.turn || Promise.resolve()).then(run, run);
+  tab.turn = result.catch(() => {});
+  return result;
 }
 
 function clamp(value, min, max) {

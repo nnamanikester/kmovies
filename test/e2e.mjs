@@ -70,7 +70,7 @@ const PLAY_BUTTON = (onClick) => `<!doctype html><meta name=viewport content="wi
 
 function startSite(dir) {
   const rejected = [];
-  const seen = { typed: null, login: null, whoami: null, answered: null };
+  const seen = { typed: null, login: null, whoami: null, answered: null, clicks: [] };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     const cors = { 'access-control-allow-origin': '*' };
@@ -147,6 +147,14 @@ function startSite(dir) {
     if (url.pathname === '/cursor-frame.html') {
       res.writeHead(200, { 'content-type': 'text/html' });
       return res.end(`<!doctype html><body style="margin:0"><a href="/x" style="display:block;height:100vh;font-size:30px">Link in another site's frame</a>`);
+    }
+    if (url.pathname === '/clicked') {
+      seen.clicks.push([Number(url.searchParams.get('x')), Number(url.searchParams.get('y'))]);
+      return res.end('ok');
+    }
+    if (url.pathname === '/clicks.html') {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      return res.end(`<!doctype html><title>Clicks</title><style>@keyframes spin{to{transform:rotate(360deg)}}</style><body style="margin:0;height:200vh"><div style="position:fixed;width:200px;height:200px;background:red;animation:spin 1s linear infinite"></div><script>addEventListener('mousedown',(e)=>fetch('/clicked?x='+e.clientX+'&y='+e.clientY))</script>`);
     }
     if (url.pathname === '/moving.html') {
       res.writeHead(200, { 'content-type': 'text/html' });
@@ -739,6 +747,59 @@ async function main() {
     assert.deepEqual(moving.natural, moving.wanted, 'a moving page should stay at full resolution');
     assert.ok(movingCount >= 16, `a moving page sent only ${movingCount} images in 2 seconds`);
     console.log(`        (moving page on Retina: ${movingCount / 2} images per second at ${moving.natural.join('x')})`);
+
+    // Clicks land where they're aimed while the screen is being captured, at any size and density.
+    const clicksLand = async (label, tab = browse) => {
+      const box = await (await tab.$('.stage')).boundingBox();
+      const size = await tab.evaluate(() => { const stage = document.querySelector('.stage'); return [stage.clientWidth, stage.clientHeight]; });
+      assert.deepEqual([Math.round(box.width), Math.round(box.height)], size);
+      for (let i = 0; i < 20; i += 1) {
+        const [x, y] = [100 + ((i * 37) % 500), 80 + ((i * 23) % 300)];
+        site.seen.clicks.length = 0;
+        await tab.mouse.click(box.x + x, box.y + y);
+        await waitFor(`the click ${i} on ${label}`, () => site.seen.clicks.length > 0, 3000);
+        const [gotX, gotY] = site.seen.clicks[0];
+        assert.ok(Math.abs(gotX - x) <= 1 && Math.abs(gotY - y) <= 1, `on ${label}, a click at ${x},${y} landed at ${gotX},${gotY}`);
+      }
+    };
+    await goToPage(`http://127.0.0.1:${SITE_PORT}/clicks.html`);
+    await sleep(500);
+    await clicksLand('a busy page on a Retina screen');
+    // Changing size while frames are being captured must not freeze the picture.
+    for (const [width, height, deviceScaleFactor] of [[1100, 700, 2], [1512, 982, 1.5], [1280, 800, 2]]) {
+      await browse.setViewport({ width, height, deviceScaleFactor });
+      await waitFor(`the picture to follow the window at ${width}x${height}@${deviceScaleFactor}`, () => browse.evaluate(() => {
+        const stage = document.querySelector('.stage');
+        const image = document.querySelector('.stage__screen');
+        return image.naturalWidth === Math.round(stage.clientWidth * devicePixelRatio) && image.naturalHeight === Math.round(stage.clientHeight * devicePixelRatio);
+      }), 6000);
+      await sleep(300);
+      await clicksLand(`${width}x${height}@${deviceScaleFactor}`);
+    }
+    // The web app left open in a second tab of another size, and a window wider than Chrome goes.
+    const otherTab = await browser.newPage();
+    await otherTab.setViewport({ width: 900, height: 600, deviceScaleFactor: 2 });
+    await otherTab.goto(browse.url());
+    await sleep(1000);
+    await browse.bringToFront();
+    const stage2 = await (await browse.$('.stage')).boundingBox();
+    site.seen.clicks.length = 0;
+    await browse.mouse.click(stage2.x + stage2.width / 2, stage2.y + stage2.height / 2);
+    await waitFor('a click from the other tab', () => site.seen.clicks.length > 0, 3000);
+    const otherSize = await otherTab.evaluate(() => { const stage = document.querySelector('.stage'); return [stage.clientWidth, stage.clientHeight]; });
+    assert.ok(Math.abs(site.seen.clicks[0][0] - otherSize[0] / 2) <= 1 && Math.abs(site.seen.clicks[0][1] - otherSize[1] / 2) <= 1, `the middle of the screen landed at ${site.seen.clicks[0]}, on a page of ${otherSize}`);
+    await otherTab.close();
+    await browse.setViewport({ width: 4200, height: 900, deviceScaleFactor: 1 });
+    await sleep(800);
+    const wide = await (await browse.$('.stage')).boundingBox();
+    site.seen.clicks.length = 0;
+    await browse.mouse.click(wide.x + wide.width / 2, wide.y + wide.height / 2);
+    await waitFor('a click in a very wide window', () => site.seen.clicks.length > 0, 3000);
+    assert.ok(Math.abs(site.seen.clicks[0][0] - 1920) <= 1, `the middle of a 4200-wide window landed at ${site.seen.clicks[0][0]} of 3840`);
+    await browse.setViewport({ width: 1280, height: 800, deviceScaleFactor: 2 });
+    await sleep(600);
+    step('Clicks land where aimed on busy pages, at every size and density, and with the app open twice');
+
     await goToPage(`http://127.0.0.1:${SITE_PORT}/stripes.html`);
     await checkSharp(browse, 'still on a Retina screen');
     await browse.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });

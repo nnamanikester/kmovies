@@ -11,7 +11,7 @@ export default function App() {
   const viewRef = useRef(null);
   const toolbarRef = useRef(null);
   const onFrame = useCallback((blob) => viewRef.current?.showFrame(blob), []);
-  const { connected, hasToken, state, library, cursor, selection, send } = useServer(onFrame);
+  const { connected, hasToken, state, library, cursor, selection, pageSize, send } = useServer(onFrame);
   const [fullscreen, setFullscreen] = useState(false);
   const activeTab = state?.tabs.find((tab) => tab.id === state.activeTabId);
   const isBlank = !activeTab || !/^https?:/.test(activeTab.url);
@@ -68,7 +68,7 @@ export default function App() {
       <div className={`loading ${activeTab?.loading ? 'loading--on' : ''}`} role="progressbar" aria-hidden={!activeTab?.loading} aria-label="Page loading" />
 
       <div className="viewport">
-        <RemoteView ref={viewRef} send={send} connected={connected} cursor={cursor} selection={selection} onShortcut={shortcuts} />
+        <RemoteView ref={viewRef} send={send} connected={connected} cursor={cursor} selection={selection} pageSize={pageSize} onShortcut={shortcuts} />
         {isBlank && state && <StartPage library={library} onOpen={open} />}
         {state?.dialog && <PageDialog dialog={state.dialog} send={send} onDone={() => viewRef.current?.focus()} />}
       </div>

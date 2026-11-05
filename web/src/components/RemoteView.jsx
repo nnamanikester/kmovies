@@ -22,11 +22,12 @@ function modifierBits(event) {
  * Shows the active tab's screen and passes your mouse and keyboard straight to
  * the page, so it behaves as if you were using it directly.
  */
-export const RemoteView = forwardRef(function RemoteView({ send, connected, cursor, selection, onShortcut }, ref) {
+export const RemoteView = forwardRef(function RemoteView({ send, connected, cursor, selection, pageSize, onShortcut }, ref) {
   const stageRef = useRef(null);
   const imageRef = useRef(null);
-  /** The size Chrome was last told to use, which pointer positions must map onto. */
-  const sentSizeRef = useRef(null);
+  /** The size Chrome really has, which can differ from this stage's when another tab of the app set it. */
+  const pageSizeRef = useRef(null);
+  pageSizeRef.current = pageSize;
   const lastClickRef = useRef({ time: 0, x: 0, y: 0, count: 0 });
   /** Moves are sent at most once per INPUT_INTERVAL_MS, always ending with the latest. */
   const lastMoveAtRef = useRef(0);
@@ -59,7 +60,6 @@ export const RemoteView = forwardRef(function RemoteView({ send, connected, curs
       const width = stage.clientWidth;
       const height = stage.clientHeight;
       if (!width || !height) return;
-      sentSizeRef.current = { width, height };
       // Exactly your screen's pixels, so the page is drawn at the resolution it's shown at.
       send({ type: 'viewport', width, height, deviceScaleFactor: Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO), mobile });
     };
@@ -74,6 +74,8 @@ export const RemoteView = forwardRef(function RemoteView({ send, connected, curs
       timer = setTimeout(report, RESIZE_DEBOUNCE_MS);
     };
     window.addEventListener('resize', onResize);
+    // With the app open in two tabs, Chrome fits whichever you're using.
+    window.addEventListener('focus', onResize);
     let ratio = window.devicePixelRatio;
     const ratioWatch = setInterval(() => {
       if (window.devicePixelRatio === ratio) return;
@@ -84,6 +86,7 @@ export const RemoteView = forwardRef(function RemoteView({ send, connected, curs
       clearTimeout(timer);
       observer.disconnect();
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('focus', onResize);
       clearInterval(ratioWatch);
     };
   }, [send, connected]);
@@ -134,7 +137,7 @@ export const RemoteView = forwardRef(function RemoteView({ send, connected, curs
 
   function position(event) {
     const rect = stageRef.current.getBoundingClientRect();
-    const size = sentSizeRef.current ?? rect;
+    const size = pageSizeRef.current ?? rect;
     return {
       x: ((event.clientX - rect.left) * size.width) / rect.width,
       y: ((event.clientY - rect.top) * size.height) / rect.height,

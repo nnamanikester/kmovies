@@ -81,6 +81,7 @@ function onSender(ws) {
   chrome.setViewers(senders.size);
   sendJson(ws, cast.snapshot());
   sendJson(ws, library.snapshot());
+  sendJson(ws, { type: 'pageSize', ...chrome.pageSize() });
   if (chrome.activeTab?.lastFrame) ws.send(chrome.activeTab.lastFrame);
 
   ws.on('message', (raw) => {
@@ -161,6 +162,7 @@ async function handleSenderMessage(message) {
 
 cast.on('changed', (snapshot) => senders.forEach((ws) => sendJson(ws, snapshot)));
 chrome.on('cursor', (cursor) => broadcast({ type: 'cursor', cursor }));
+chrome.on('viewport', (size) => broadcast({ type: 'pageSize', ...size }));
 chrome.on('frame', (frame) => {
   senders.forEach((ws) => {
     if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < MAX_BUFFERED_BYTES) ws.send(frame);
@@ -203,7 +205,7 @@ async function main() {
   });
   await new Promise((resolve) => server.listen(PORT, '0.0.0.0', () => {
     const link = `${serverOrigin()}/?t=${token}`;
-    console.log(`\nKMovies is running.\nOpen this on your phone (same Wi-Fi):\n\n  ${link}\n`);
+    console.log(`\nKMovies is running.\nOpen this in your browser:\n\n  ${link}\n`);
     qrcode.generate(link, { small: true });
     resolve();
   }));

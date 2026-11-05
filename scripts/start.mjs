@@ -7,9 +7,10 @@ import { execFile, execFileSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import readline from 'node:readline/promises';
 import { promisify } from 'node:util';
 import { PORT, ROOT, STATE_DIR, lanAddress, loadSecrets, saveServerHost } from '../server/config.js';
-import { findTv, localNetworks } from './find-tv.mjs';
+import { findTv, keyServerIsOn, localNetworks, pairTv } from './find-tv.mjs';
 
 const { id, version } = JSON.parse(fs.readFileSync(path.join(ROOT, 'webos', 'appinfo.json'), 'utf8'));
 const APP_ID = id;
@@ -60,6 +61,41 @@ let connectedAddress = null;
 let lastProblem = null;
 let serverStarted = false;
 let browserOpened = false;
+let pairingNeeded = false;
+let pairingDeclined = false;
+
+function showProblem(message) {
+  if (message !== lastProblem) console.error(`\n${message}\n`);
+  lastProblem = message;
+}
+
+/** A computer that hasn't used this TV before gets its key here, one time only. */
+async function pairWithTv(host) {
+  if (pairingDeclined) return false;
+  if (!process.stdin.isTTY) {
+    showProblem(`This computer isn't paired with the TV at ${host}.\nRun npm start in a terminal to pair it.`);
+    return false;
+  }
+  if (!(await keyServerIsOn(host))) {
+    showProblem(`This computer isn't paired with your TV yet (one time only).\nOn the TV, open the Developer Mode app and turn on Key Server. KMovies will continue as soon as it's on.`);
+    return false;
+  }
+  console.log(`\nThis computer isn't paired with your TV at ${host} yet (one time only).`);
+  // Not a terminal-mode prompt, so Ctrl+C still stops KMovies.
+  const prompt = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+  const answer = await prompt.question('Type the passphrase shown in the TV\'s Developer Mode app, then press Enter (or just Enter to skip): ');
+  prompt.close();
+  const passphrase = answer.trim();
+  if (!passphrase) {
+    pairingDeclined = true;
+    console.log('Skipped. Browsing still works, but casting needs the TV. Run npm start again to pair.\n');
+    return false;
+  }
+  const model = await pairTv(DEVICE, host, passphrase);
+  console.log(model ? `Paired with ${model}.` : 'The TV didn\'t accept that. Check the passphrase and that Key Server is on.');
+  lastProblem = null;
+  return Boolean(model);
+}
 
 /** Connects the TV, if it isn't already set up for the address this computer has now. */
 async function connectTv() {
@@ -78,8 +114,13 @@ async function connectTv() {
     lastProblem = null;
   } catch (err) {
     connectedAddress = null;
-    if (err.message !== lastProblem) console.error(`\nCan't reach the TV yet. Still trying.\n${err.message}\n`);
-    lastProblem = err.message;
+    if (err.pairWith) {
+      // Asked once the server is up, so a question doesn't hold up browsing.
+      pairingNeeded = !serverStarted;
+      if (serverStarted && (await pairWithTv(err.pairWith))) await connectTv();
+      return;
+    }
+    showProblem(`Can't reach the TV yet. Still trying.\n${err.message}`);
   }
 }
 
@@ -101,7 +142,7 @@ async function main() {
   }
 
   const watch = () => connectTv().finally(() => setTimeout(watch, WATCH_INTERVAL_MS));
-  setTimeout(watch, WATCH_INTERVAL_MS);
+  setTimeout(watch, pairingNeeded ? 0 : WATCH_INTERVAL_MS);
 }
 
 main().catch((err) => {

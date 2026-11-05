@@ -107,9 +107,10 @@ else appears under **Videos found on this page**, with a **Cast** button. Turn o
 
 1. On the TV, install **Developer Mode** from the LG Content Store and sign in with a free
    [LG developer account](https://webostv.developer.lge.com).
-2. Turn on **Dev Mode Status**, let the TV restart, then turn on **Key Server**. Note the IP address shown.
-3. Run `npm run tv:setup`, choose **add**, and enter the name `tv`, that IP, and port `9922`, user `prisoner`, with an empty password.
-4. Run `npx ares-novacom --device tv --getkey` and enter the passphrase shown on the TV.
+2. Turn on **Dev Mode Status**, let the TV restart, then turn on **Key Server**.
+3. Run `npm start` in a terminal. It finds the TV and asks for the passphrase shown in the Developer Mode app.
+
+Each computer you use pairs once in the same way. After that, `npm start` needs nothing from you.
 
 Developer Mode expires, so press **Extend** in its app now and then.
 

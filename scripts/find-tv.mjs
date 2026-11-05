@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const DEV_MODE_PORT = 9922;
+const KEY_SERVER_PORT = 9991;
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SSDP_ADDRESS = '239.255.255.250';
 const SSDP_PORT = 1900;
@@ -116,18 +117,39 @@ async function savedHost(device) {
   return match ? match[1] : null;
 }
 
+/** Points the device at `host`, creating it on a computer that hasn't used this TV before. */
+async function pointDeviceAt(device, host) {
+  const { ok } = await ares('ares-setup-device', ['--modify', device, '--info', `host=${host}`]);
+  if (ok) return true;
+  const added = await ares('ares-setup-device', ['--add', device, '--info', `host=${host}`, '--info', `port=${DEV_MODE_PORT}`, '--info', 'username=prisoner']);
+  return added.ok;
+}
+
 /** Points the device at `host` and connects to it. @returns the model name if it's the paired TV. */
 async function confirmTv(device, host) {
-  const saved = await ares('ares-setup-device', ['--modify', device, '--info', `host=${host}`]);
-  if (!saved.ok) return null;
+  if (!(await pointDeviceAt(device, host))) return null;
   const { output } = await ares('ares-device', ['-i', '-d', device]);
   const model = /modelName\s*:\s*(\S+)/.exec(output);
   return model ? model[1] : null;
 }
 
+export const keyServerIsOn = (host) => isPortOpen(host, KEY_SERVER_PORT);
+
+/**
+ * Pairs this computer: fetches the key from the TV's Key Server and proves it works.
+ * @param {string} passphrase the one the Developer Mode app shows
+ * @returns {Promise<string|null>} the model name, or null if the TV didn't accept it
+ */
+export async function pairTv(device, host, passphrase) {
+  if (!(await pointDeviceAt(device, host))) return null;
+  const { ok } = await ares('ares-novacom', ['--device', device, '--getkey', '--passphrase', passphrase]);
+  return ok ? confirmTv(device, host) : null;
+}
+
 /**
  * @returns {Promise<{ host: string, model: string, computerAddress: string }>}
- * @throws {Error} explaining what to do when the TV can't be found
+ * @throws {Error} explaining what to do when the TV can't be found. `pairWith` is set
+ *   to the TV's address when all it needs is for this computer to be paired.
  */
 export async function findTv(device = process.env.TV_DEVICE || 'tv') {
   const networks = localNetworks();
@@ -161,7 +183,11 @@ export async function findTv(device = process.env.TV_DEVICE || 'tv') {
 
   const onNetworks = networks.map((network) => network.address).join(', ');
   if (tried.size > 0) {
-    throw new Error(`Found Developer Mode at ${[...tried].join(', ')}, but it rejected this computer's key.\nOpen Developer Mode on the TV, turn on Key Server, then run: npx ares-novacom --device ${device} --getkey`);
+    const refused = [...tried];
+    const error = new Error(`Found Developer Mode at ${refused.join(', ')}, but this computer isn't paired with it.`);
+    // Other devices can have this port open, so only something that looks like the TV is offered.
+    error.pairWith = refused.find((host) => lgTvs.includes(host)) || (refused.length === 1 ? refused[0] : null);
+    throw error;
   }
   if (lgTvs.length > 0) {
     throw new Error(`Found an LG TV at ${lgTvs.join(', ')}, but Developer Mode isn’t answering.\nOpen the Developer Mode app on the TV and check Dev Mode Status is on and hasn’t expired.`);

@@ -18,7 +18,7 @@ function readToken() {
 /**
  * Connection to the KMovies server.
  * @param {(frame: Blob) => void} onFrame called with each JPEG of Chrome's screen
- * @returns {{ connected: boolean, hasToken: boolean, state: object|null, library: object, cursor: string|null, selection: string, send: (message: object) => void }}
+ * @returns {{ connected: boolean, hasToken: boolean, state: object|null, library: object, cursor: string|null, selection: string, pageSize: {width: number, height: number}|null, send: (message: object) => void }}
  */
 export function useServer(onFrame) {
   const [connected, setConnected] = useState(false);
@@ -26,6 +26,7 @@ export function useServer(onFrame) {
   const [library, setLibrary] = useState({ history: [], bookmarks: [] });
   const [cursor, setCursor] = useState(null);
   const [selection, setSelection] = useState('');
+  const [pageSize, setPageSize] = useState(null);
   const socketRef = useRef(null);
   const onFrameRef = useRef(onFrame);
   onFrameRef.current = onFrame;
@@ -49,6 +50,7 @@ export function useServer(onFrame) {
         if (message.type === 'library') setLibrary(message);
         if (message.type === 'cursor') setCursor(message.cursor);
         if (message.type === 'selection') setSelection(message.text);
+        if (message.type === 'pageSize') setPageSize({ width: message.width, height: message.height });
         return undefined;
       };
       socket.onclose = () => {
@@ -69,5 +71,5 @@ export function useServer(onFrame) {
     if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify(message));
   }, []);
 
-  return { connected, hasToken: Boolean(token), state, library, cursor, selection, send };
+  return { connected, hasToken: Boolean(token), state, library, cursor, selection, pageSize, send };
 }
